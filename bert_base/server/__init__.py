@@ -517,7 +517,7 @@ class BertWorker(Process):
                     t = []
                     for ti in f:
                         tstr = ti.decode('utf-8')
-                        if tstr in ['[CLS]', '[SEP]', 'E']:
+                        if tstr in ['[CLS]', '[SEP]', '[BLANK]']:
                             continue
                         t.append(tstr)
                     tokens.append(t)
@@ -567,7 +567,7 @@ class BertWorker(Process):
                         #  提取tokens,并填充长度至max_seq_len
                         tokens = []
                         for f in [f.tokens for f in tmp_f]:
-                            f = f + ['E'] * (self.max_seq_len - len(f))
+                            f = f + ['[BLANK]'] * (self.max_seq_len - len(f))
                             tokens.append(f)
                         yield {
                             'client_id': client_id,
