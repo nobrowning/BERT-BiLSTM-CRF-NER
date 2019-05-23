@@ -50,9 +50,9 @@ def send_ndarray(src, dest, X, req_id=b'', flags=0, copy=True, track=False):
     """send a numpy array with metadata"""
     # md = dict(dtype=str(X.dtype), shape=X.shape)
     if type(X) == list and type(X[0]) == dict: # 分类for sink发送消息的处理
-        md = dict(dtype='json', shape=(len(X[0]['pred_label']), 1))
+        md = dict(dtype='json')
     elif type(X) == dict: # 分类 bertwork 发送消息的处理
-        md = dict(dtype='json', shape=(len(X['pred_label']), 1))
+        md = dict(dtype='json')
     else:
         md = dict(dtype='str', shape=(len(X), len(X[0])))
     # print('md', md)

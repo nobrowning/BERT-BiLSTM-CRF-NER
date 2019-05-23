@@ -34,6 +34,7 @@ from zmq.utils import jsonapi
 from .helper import *
 from .http import BertHTTPProxy
 from .zmq_decor import multi_socket
+
 sys.path.append('..')
 from bert_base.train.models import convert_id_to_label
 
@@ -108,7 +109,7 @@ class BertServer(threading.Thread):
                 num_labels, label2id, id2label = init_predict_var(self.args.model_dir)
                 self.num_labels = num_labels
                 self.id2label = id2label
-                self.logger.info('contain %d labels:%s' %(num_labels, str(id2label.values())))
+                self.logger.info('contain %d labels:%s' % (num_labels, str(id2label.values())))
                 self.graph_path = pool.apply(optimize_class_model, (self.args, num_labels))
             if self.graph_path:
                 self.logger.info('optimized graph is stored at: %s' % self.graph_path)
@@ -336,7 +337,7 @@ class BertSink(Process):
                 elif self.args.mode == 'NER':
                     arr_info, arr_val = jsonapi.loads(msg[1]), pickle.loads(msg[2])
                     pending_result[job_id].append((arr_val, partial_id))
-                    pending_checksum[job_id] += len(arr_val)
+                    pending_checksum[job_id] += len(arr_val['tags'])
                 elif self.args.mode == 'CLASS':
                     arr_info, arr_val = jsonapi.loads(msg[1]), pickle.loads(msg[2])
                     pending_result[job_id].append((arr_val, partial_id))
@@ -353,7 +354,7 @@ class BertSink(Process):
                     # re-sort to the original order
                     tmp = [x[0] for x in sorted(tmp, key=lambda x: int(x[1]))]
                     client_addr, req_id = job_info.split(b'#')
-                    if self.args.mode == 'CLASS': # 因为分类模型带上了分类的概率，所以不能直接返回结果，需要使用json格式的数据进行返回。
+                    if self.args.mode == 'CLASS' or self.args.mode == 'NER':  # 返回Json Object
                         send_ndarray(sender, client_addr, tmp, req_id)
                     else:
                         send_ndarray(sender, client_addr, np.concatenate(tmp, axis=0), req_id)
@@ -442,7 +443,8 @@ class BertWorker(Process):
 
             return EstimatorSpec(mode=mode, predictions={
                 'client_id': features['client_id'],
-                'encodes': pred_ids[0]
+                'encodes': pred_ids[0],
+                'tokens': features['input_tokens']
             })
 
         def classification_model_fn(features, labels, mode, params):
@@ -508,8 +510,21 @@ class BertWorker(Process):
                 logger.info('job done\tsize: %s\tclient: %s' % (r['encodes'].shape, r['client_id']))
             elif self.mode == 'NER':
                 pred_label_result, pred_ids_result = ner_result_to_json(r['encodes'], self.id2label)
-                rst = send_ndarray(sink, r['client_id'], pred_label_result)
-                # print('rst:', rst)
+
+                # 　过滤token,并编码
+                tokens = []
+                for f in r['tokens']:
+                    t = []
+                    for ti in f:
+                        tstr = ti.decode('utf-8')
+                        if tstr in ['[CLS]', '[SEP]', 'E']:
+                            continue
+                        t.append(tstr)
+                    tokens.append(t)
+
+                #  打包响应数据
+                to_client = {'tokens': tokens, 'tags': pred_label_result}
+                rst = send_ndarray(sink, r['client_id'], to_client)
                 logger.info('job done\tsize: %s\tclient: %s' % (r['encodes'].shape, r['client_id']))
             elif self.mode == 'CLASS':
                 pred_label_result = [self.id2label.get(x, -1) for x in r['encodes']]
@@ -539,7 +554,7 @@ class BertWorker(Process):
                 events = dict(poller.poll())
                 for sock_idx, sock in enumerate(socks):
                     if sock in events:
-                        #接收来自客户端的消息
+                        # 接收来自客户端的消息
                         client_id, raw_msg = sock.recv_multipart()
                         msg = jsonapi.loads(raw_msg)
                         logger.info('new job\tsocket: %d\tsize: %d\tclient: %s' % (sock_idx, len(msg), client_id))
@@ -549,12 +564,17 @@ class BertWorker(Process):
                         is_tokenized = all(isinstance(el, list) for el in msg)
                         tmp_f = list(convert_lst_to_features(msg, self.max_seq_len, tokenizer, logger,
                                                              is_tokenized, self.mask_cls_sep))
-                        #print([f.input_ids for f in tmp_f])
+                        #  提取tokens,并填充长度至max_seq_len
+                        tokens = []
+                        for f in [f.tokens for f in tmp_f]:
+                            f = f + ['E'] * (self.max_seq_len - len(f))
+                            tokens.append(f)
                         yield {
                             'client_id': client_id,
                             'input_ids': [f.input_ids for f in tmp_f],
                             'input_mask': [f.input_mask for f in tmp_f],
-                            'input_type_ids': [f.input_type_ids for f in tmp_f]
+                            'input_type_ids': [f.input_type_ids for f in tmp_f],
+                            'input_tokens': tokens
                         }
 
         def input_fn():
@@ -563,12 +583,16 @@ class BertWorker(Process):
                 output_types={'input_ids': tf.int32,
                               'input_mask': tf.int32,
                               'input_type_ids': tf.int32,
-                              'client_id': tf.string},
+                              'client_id': tf.string,
+                              'input_tokens': tf.string
+                              },
                 output_shapes={
                     'client_id': (),
                     'input_ids': (None, self.max_seq_len),
-                    'input_mask': (None, self.max_seq_len), #.shard(num_shards=4, index=4)
-                    'input_type_ids': (None, self.max_seq_len)}).prefetch(self.prefetch_size))
+                    'input_mask': (None, self.max_seq_len),  # .shard(num_shards=4, index=4)
+                    'input_type_ids': (None, self.max_seq_len),
+                    'input_tokens': (None, self.max_seq_len)
+                }).prefetch(self.prefetch_size))
 
         return input_fn
 
@@ -666,7 +690,6 @@ def ner_result_to_json(predict_ids, id2label):
     """
     if False:
         return predict_ids
-    pred_label_result, pred_ids_result =\
-                convert_id_to_label(predict_ids, id2label, len(predict_ids))
+    pred_label_result, pred_ids_result = \
+        convert_id_to_label(predict_ids, id2label, len(predict_ids))
     return pred_label_result, pred_ids_result
-
