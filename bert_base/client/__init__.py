@@ -152,7 +152,7 @@ class BertClient(object):
         request_id, response = self._recv()
         if self.mode == 'NER':
             arr_info, arr_val = jsonapi.loads(response[1]), pickle.loads(response[2])
-            assert arr_info['dtype'] == 'str'
+            assert arr_info['dtype'] == 'json'
             return Response(request_id, arr_val)
         elif self.mode == 'BERT':
             arr_info, arr_val = jsonapi.loads(response[1]), response[2]
