@@ -1,5 +1,3 @@
-# BERT-BiLSMT-CRF-NER
-
 fork from https://github.com/macanv/BERT-BiLSTM-CRF-NER
 
 
