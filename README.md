@@ -1,4 +1,4 @@
-# BERT-BiLSMT-CRF-NER
+# BERT-BiLSTM-CRF-NER
 Tensorflow solution of NER task Using BiLSTM-CRF model with Google BERT Fine-tuning
 
 使用谷歌的BERT模型在BLSTM-CRF模型上进行预训练用于中文命名实体识别的Tensorflow代码'
@@ -31,6 +31,8 @@ git clone https://github.com/macanv/BERT-BiLSTM-CRF-NER
 cd BERT-BiLSTM-CRF-NER/
 python3 setup.py install
 ```
+
+if you do not want to install, you just need clone this project and reference the file of <run.py> to train the model or start the service. 
 
 ## UPDATE:
 - 2019.2.25 Fix some bug for ner service
@@ -92,6 +94,7 @@ OR save label in a file like labels.txt, one line one label
 ```    
 
 After training model, the NER model will be saved in {output_dir} which you special above cmd line.  
+##### My Training environment：Tesla P40 24G mem  
 
 ## As Service
 Many server and client code comes from excellent open source projects: [bert as service of hanxiao](https://github.com/hanxiao/bert-as-service) If my code violates any license agreement, please let me know and I will correct it the first time.
